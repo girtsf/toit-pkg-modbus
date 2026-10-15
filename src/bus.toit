@@ -23,10 +23,11 @@ Represents the physical line. Use $station to talk to servers on the bus.
 */
 class Modbus:
   static DEFAULT-MAX-CONCURRENT-TRANSACTIONS ::= 16
-  static READ-TIMEOUT-MS_ ::= 1_500
+  static DEFAULT-TIMEOUT ::= Duration --ms=1_500
 
   transactions_/TransactionManager_ ::= ?
   logger_/log.Logger
+  timeout_/Duration
 
   /**
   Creates a Modbus bus.
@@ -39,16 +40,20 @@ class Modbus:
   The $auto-run parameter specifies whether the bus should start its read task automatically. This is the default,
     and there are few reasons why users would want to change this. If the $auto-run is false, users need to call
     $run explicitly.
+
+  The $timeout is how long a request waits for its response.
   */
   constructor transport/Transport
       --auto-run=true
       --max-concurrent-transactions/int?=null
+      --timeout/Duration=DEFAULT-TIMEOUT
       --logger/log.Logger=(log.default.with-name "modbus"):
     if not transport.supports-parallel-sessions:
       max-concurrent-transactions = 1
     else if not max-concurrent-transactions:
       max-concurrent-transactions = DEFAULT-MAX-CONCURRENT-TRANSACTIONS
     logger_ = logger
+    timeout_ = timeout
     transactions_ = TransactionManager_ transport
         --logger=logger
         --max-concurrent-transactions=max-concurrent-transactions
@@ -61,11 +66,13 @@ class Modbus:
   constructor.tcp socket/tcp.Socket
       --framer/Framer=TcpFramer
       --max-concurrent-transactions/int?=null
-      --auto-run=true:
+      --auto-run=true
+      --timeout/Duration=DEFAULT-TIMEOUT:
     return Modbus
         TcpTransport socket --framer=framer
         --auto-run=auto-run
         --max-concurrent-transactions=max-concurrent-transactions
+        --timeout=timeout
 
   /**
   Variant of $Modbus.constructor.
@@ -73,10 +80,12 @@ class Modbus:
   */
   constructor.rtu rs485-bus/rs485.Rs485
       --framer/Framer=(RtuFramer --baud-rate=rs485-bus.baud-rate)
-      --auto-run=true:
+      --auto-run=true
+      --timeout/Duration=DEFAULT-TIMEOUT:
     return Modbus
       Rs485Transport rs485-bus --framer=framer
       --auto-run=auto-run
+      --timeout=timeout
 
   /**
   Variant of $Modbus.constructor.
@@ -133,7 +142,7 @@ class Modbus:
       transactions_.write id frame
       response-frame/Frame? := null
       if is-broadcast: return null
-      with-timeout --ms=READ-TIMEOUT-MS_:
+      with-timeout timeout_:
         response-frame = transactions_.read id
       return deserialize-response.call response-frame
     finally:
